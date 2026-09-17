@@ -1,68 +1,41 @@
 import EventEmitter from "node:events";
 import * as http from 'node:http'
 import type IWebSocketServerOptions from "./types/IWebSocketServerOptions.ts";
-// import Constants from "./constants.js";
-
-import Index from "./index.js";
+import Constants from "./constants.js";
 import Helpers from "./helpers.js";
 
 class WebSocketServer extends EventEmitter {
     constructor(options: IWebSocketServerOptions) {
         super()
-        // options = { ...Constants.webSocketDefaultServerOptions, ...options }
-        if (!options.httpServer) {
-            new Index(this.handleRequest.bind(this))
+        options = { ...Constants.webSocketDefaultServerOptions, ...options }
+        if (options.httpServer) {
+            options.httpServer.on('upgrade', (req, socket, head) => {
+
+                const key = Helpers.concatenateKeyAndGUID(req.headers['sec-websocket-key'] ?? '')
+                const acceptKey = Helpers.encryptStringWithSHA1(key)
+
+                const responseHeaders = [
+                    "HTTP/1.1 101 Switching Protocols",
+                    "Upgrade: websocket",
+                    "Connection: Upgrade",
+                    `Sec-WebSocket-Accept: ${acceptKey}`,
+                    "\r\n"
+                ]
+
+                socket.write(responseHeaders.join("\r\n"))
+                socket.on('data', (buffer: Buffer) => {
+                    const message = Helpers.decodeBuffer(buffer)
+                    console.log(`Mensagem recebida as ${new Date().toLocaleTimeString()}:`, message)
+                })
+            })
         }
-    }
-
-    handleRequest(req: http.IncomingMessage, res: http.ServerResponse) {
-
-        if (req.headers['connection'] === 'Upgrade') this.validateHandshake(req, res)
-
-    }
-
-    private validateHandshake(req: http.IncomingMessage, res: http.ServerResponse) {
-
-        // const requestURI = req.url
-        const { host,
-            upgrade,
-            connection,
-            "sec-websocket-key": webSocketKey,
-            "sec-websocket-version": webSocketVersion
-        } = req.headers
-
-        if (webSocketVersion !== '13') {
-            return this.finishHandshake(res, new Headers({ "Sec-Websocket-Version": '13' }), 426)
-        }
-
-        if (!host ||
-            upgrade !== 'websocket' ||
-            connection !== 'Upgrade' ||
-            atob(webSocketKey ?? '').length !== 16
-        ) {
-            return this.finishHandshake(res, null, 400)
-        }
-
-        const concatenatedKeyAndGUID = Helpers.concatenateKeyAndGUID(webSocketKey ?? '')
-        const secWebsocketAccept = Helpers.encryptStringWithSHA1(concatenatedKeyAndGUID)
-
-        const headers = new Headers({
-            Upgrade: 'websocket',
-            Connection: 'Upgrade',
-            'Sec-WebSocket-Accept': secWebsocketAccept
-        })
-
-        return this.finishHandshake(res, headers, 101)
-    }
-
-    private finishHandshake(res: http.ServerResponse, headers: Headers | null, statusCode: number): void {
-        res.statusCode = statusCode
-        if (headers) res.setHeaders(headers)
-        res.end()
     }
 
 }
 
 export default WebSocketServer
 
-new WebSocketServer({ httpServer: null, port: null })
+const server = http.createServer()
+server.listen(2000, () => { console.log('Servidor rodando na porta', 2000) })
+
+new WebSocketServer({ httpServer: server, port: null })

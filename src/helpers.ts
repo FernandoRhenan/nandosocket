@@ -1,4 +1,6 @@
 import { createHash } from 'node:crypto'
+import type IWebSocketFrameBody from './types/IWebSocketFrameBody.js'
+// import type IWebSocketFrameBody from './types/IWebSocketFrameBody.js'
 
 class Helpers {
     static concatenateKeyAndGUID(webSocketKey: string) {
@@ -13,6 +15,54 @@ class Helpers {
                 .digest('base64')
 
         return sha1HashBase64Encoded
+    }
+
+    static decodeBuffer(buffer: Buffer): IWebSocketFrameBody {
+        const firstByte = Number(buffer[0])
+        const secondByte = Number(buffer[1])
+
+        const fin = Boolean(firstByte & 0b10000000)
+        const { rsv1, rsv2, rsv3 } = { rsv1: Boolean(firstByte & 0b01000000), rsv2: Boolean(firstByte & 0b00100000), rsv3: Boolean(firstByte & 0b00010000) }
+        const opcode = firstByte & 0b00001111
+        const mask = Boolean(secondByte & 0b10000000)
+        let payloadLength: number = (secondByte & 0b01111111)
+
+        let offset = 2
+        if (payloadLength > 125) {
+            payloadLength = buffer.readUInt16BE(offset)
+            offset += 2
+        } else if (payloadLength > 126) {
+            payloadLength = Number(buffer.readBigUint64BE(offset))
+            offset += 8
+        }
+
+        let maskingKey: Buffer | null = null
+        let payload: Buffer | null = null
+
+        if (mask) {
+            maskingKey = buffer.subarray(offset, offset + 4)
+            offset += 4
+
+            payload = buffer.subarray(offset, (offset + payloadLength))
+            if (payload.length > 0 && maskingKey.length > 0) {
+                for (let i = 0; i < payload.byteLength; i++) {
+                    payload[i] = payload[i]! ^ maskingKey[i % 4]!;
+                }
+            }
+        }
+
+        return {
+            fin: fin,
+            rsv1: rsv1,
+            rsv2: rsv2,
+            rsv3: rsv3,
+            opcode: opcode,
+            mask: mask,
+            payloadLength: payloadLength,
+            maskingKey: maskingKey,
+            payload: payload
+        }
+
     }
 }
 
