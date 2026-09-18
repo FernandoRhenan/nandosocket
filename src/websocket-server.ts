@@ -30,7 +30,6 @@ class WebSocketServer extends EventEmitter {
             })
         }
     }
-
 }
 
 export default WebSocketServer

@@ -1,5 +1,6 @@
 import { createHash } from 'node:crypto'
 import type IWebSocketFrameBody from './types/IWebSocketFrameBody.js'
+import { ProtocolError } from './Errors.js'
 // import type IWebSocketFrameBody from './types/IWebSocketFrameBody.js'
 
 class Helpers {
@@ -18,13 +19,14 @@ class Helpers {
     }
 
     static decodeBuffer(buffer: Buffer): IWebSocketFrameBody {
-        const firstByte = Number(buffer[0])
         const secondByte = Number(buffer[1])
+        const mask = Boolean(secondByte & 0b10000000)
+        if (!mask) throw new ProtocolError({ message: 'The `Mask` was not provided', name: 'protocol error', statusCode: '1002' })
 
+        const firstByte = Number(buffer[0])
         const fin = Boolean(firstByte & 0b10000000)
         const { rsv1, rsv2, rsv3 } = { rsv1: Boolean(firstByte & 0b01000000), rsv2: Boolean(firstByte & 0b00100000), rsv3: Boolean(firstByte & 0b00010000) }
         const opcode = firstByte & 0b00001111
-        const mask = Boolean(secondByte & 0b10000000)
         let payloadLength: number = (secondByte & 0b01111111)
 
         let offset = 2
@@ -36,18 +38,14 @@ class Helpers {
             offset += 8
         }
 
-        let maskingKey: Buffer | null = null
-        let payload: Buffer | null = null
+        let maskingKey = buffer.subarray(offset, offset + 4)
+        offset += 4
 
-        if (mask) {
-            maskingKey = buffer.subarray(offset, offset + 4)
-            offset += 4
+        let payload = buffer.subarray(offset, (offset + payloadLength))
 
-            payload = buffer.subarray(offset, (offset + payloadLength))
-            if (payload.length > 0 && maskingKey.length > 0) {
-                for (let i = 0; i < payload.byteLength; i++) {
-                    payload[i] = payload[i]! ^ maskingKey[i % 4]!;
-                }
+        if (payload.length > 0 && maskingKey.length > 0) {
+            for (let i = 0; i < payload.byteLength; i++) {
+                payload[i] = payload[i]! ^ maskingKey[i % 4]!;
             }
         }
 
@@ -62,7 +60,6 @@ class Helpers {
             maskingKey: maskingKey,
             payload: payload
         }
-
     }
 }
 
